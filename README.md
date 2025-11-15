@@ -253,29 +253,107 @@ All data is scoped by `organization_id`. ElectricSQL shapes can be filtered by o
 
 ## Deployment
 
-### Backend (Docker)
+This template follows a **centralized infrastructure pattern** where PostgreSQL, Redis, Nginx, and SSL are provided by your infrastructure setup.
+
+### Quick Deployment
 
 ```bash
-cd backend
-docker build -t starter-app-backend .
-docker run -p 4000:4000 starter-app-backend
+# 1. Build Docker images
+./scripts/deployment/build-backend.sh
+./scripts/deployment/build-frontend.sh
+
+# 2. Push to GitHub Container Registry
+./scripts/deployment/push-backend.sh
+./scripts/deployment/push-frontend.sh
+
+# 3. Deploy via your infrastructure
+# See scripts/deployment/README.md for complete guide
 ```
 
-### Frontend (Static)
+### Architecture
 
-```bash
-cd frontend
-npm run build
-# Deploy dist/ to your CDN (Cloudflare Pages, Netlify, Vercel, etc.)
-```
+**Backend (Phoenix + Ash):**
+- Production Dockerfile: `backend/Dockerfile`
+- Exposes port 4000
+- Health check: `/health`
+- Auto-runs migrations on startup
+- Connects to infrastructure PostgreSQL via `DATABASE_URL`
+
+**Frontend (SvelteKit):**
+- Production Dockerfile: `frontend/Dockerfile`
+- Exposes port 3000
+- Serves static build via `serve`
+- Health check: `/` (root)
+
+### Infrastructure Requirements
+
+Your infrastructure should provide:
+- PostgreSQL 15+ with logical replication
+- Redis (for caching/sessions)
+- Nginx (reverse proxy + SSL)
+- Docker orchestration
+- Environment variables for both services
+
+See `scripts/deployment/README.md` for complete deployment documentation.
+
+### Environment Variables
+
+**Backend:**
+See `backend/.env.example` for complete list. Key variables:
+- `DATABASE_URL` - PostgreSQL connection (host: `postgres` in Docker network)
+- `SECRET_KEY_BASE` - Generate with `mix phx.gen.secret`
+- `PHX_HOST` - Your API domain
+- `FRONTEND_URL` - Your frontend domain (for CORS)
+
+**Frontend:**
+See `frontend/.env.example` for complete list. Key variables (must be prefixed with `PUBLIC_`):
+- `PUBLIC_API_URL` - Your backend API URL
+- `PUBLIC_ELECTRIC_URL` - Your ElectricSQL URL
 
 ### Database Migrations
 
-Migrations run automatically on backend startup in production. Or run manually:
+Migrations run automatically on backend startup in production via `StarterApp.Release.migrate/0`.
 
+Or run manually:
 ```bash
+# Development
 mix ash_postgres.migrate
+
+# Production (in container)
+docker exec -it your-backend-container /app/bin/starter_app eval "StarterApp.Release.migrate()"
 ```
+
+### Health Checks
+
+Both Docker images include health checks for monitoring:
+
+**Backend:**
+```bash
+curl http://localhost:4000/health
+# {"status": "ok", "service": "starter-app", "timestamp": "..."}
+
+curl http://localhost:4000/health/detailed
+# Includes database connectivity check
+```
+
+**Frontend:**
+```bash
+curl http://localhost:3000/
+# Returns HTML (200 OK)
+```
+
+### Deployment Scripts
+
+All deployment scripts are in `scripts/deployment/`:
+
+| Script | Purpose |
+|--------|---------|
+| `build-backend.sh` | Build backend Docker image |
+| `build-frontend.sh` | Build frontend Docker image |
+| `push-backend.sh` | Push backend to GHCR |
+| `push-frontend.sh` | Push frontend to GHCR |
+
+See `scripts/deployment/README.md` for detailed usage and workflows.
 
 ## Learn More
 

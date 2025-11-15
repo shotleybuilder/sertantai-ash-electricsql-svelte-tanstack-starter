@@ -1,11 +1,13 @@
-# Build stage
-FROM elixir:1.16-alpine AS builder
+################################################################################
+# Builder Stage
+################################################################################
+FROM elixir:1.18.4-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache \
     build-base \
     git \
-    npm
+    postgresql-client
 
 WORKDIR /app
 
@@ -16,40 +18,58 @@ RUN mix local.hex --force && \
 # Set build ENV
 ENV MIX_ENV=prod
 
-# Copy dependency files
+# Copy dependency files first (for better layer caching)
 COPY mix.exs mix.lock ./
 RUN mix deps.get --only prod
 RUN mix deps.compile
 
 # Copy application code
-COPY . .
+COPY config ./config
+COPY lib ./lib
+COPY priv ./priv
 
-# Compile and build release
+# Compile application
 RUN mix compile
+
+# Build release
 RUN mix release
 
-# Production stage
-FROM alpine:3.18
+################################################################################
+# Runner Stage
+################################################################################
+FROM alpine:3.19
 
 # Install runtime dependencies
 RUN apk add --no-cache \
     openssl \
     ncurses-libs \
     libstdc++ \
-    postgresql-client
+    libgcc \
+    postgresql-client \
+    bash
+
+# Set ERL tuning for containerized environment
+ENV ERL_MAX_PORTS=8192 \
+    ERL_MAX_ETS_TABLES=1024 \
+    LANG=C.UTF-8
 
 WORKDIR /app
 
 # Copy release from builder
-COPY --from=builder /app/_build/prod/rel/sertantai_controls ./
+COPY --from=builder /app/_build/prod/rel/starter_app ./
 
 # Create non-root user
-RUN addgroup -g 1000 sertantai && \
-    adduser -D -u 1000 -G sertantai sertantai && \
-    chown -R sertantai:sertantai /app
+RUN addgroup -g 1000 starter && \
+    adduser -D -u 1000 -G starter starter && \
+    chown -R starter:starter /app
 
-USER sertantai
+USER starter
 
 EXPOSE 4000
 
-CMD ["/app/bin/sertantai_controls", "start"]
+# Health check using the dedicated endpoint
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:4000/health || exit 1
+
+# Start script: run migrations then start server
+CMD ["/bin/bash", "-c", "/app/bin/starter_app eval 'StarterApp.Release.migrate()' && /app/bin/starter_app start"]
