@@ -50,6 +50,9 @@ A production-ready starter template for building full-stack, real-time, offline-
 git clone <your-repo-url> my-app
 cd my-app
 
+# Install git hooks (optional but recommended)
+./.githooks/setup.sh
+
 # Backend setup
 cd backend
 mix deps.get
